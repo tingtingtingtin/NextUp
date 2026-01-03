@@ -4,7 +4,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import java.util.Calendar
+import java.time.LocalDate
 
 class TodoManager(
     private var highCount: Int = 1,
@@ -23,20 +23,74 @@ class TodoManager(
             val newList = currentList.toMutableList()
             var nextId = (newList.maxOfOrNull { it.id } ?: -1) + 1
 
-            val currentHigh = newList.count { it.priority == Priority.HIGH }
-            val currentMedium = newList.count { it.priority == Priority.MEDIUM }
-            val currentLow = newList.count { it.priority == Priority.LOW }
+            Priority.values().forEach { priority ->
+                val currentCount = newList.count { it.priority == priority }
+                val targetCount = when (priority) {
+                    Priority.HIGH -> highCount
+                    Priority.MEDIUM -> mediumCount
+                    Priority.LOW -> lowCount
+                }
+                repeat((targetCount - currentCount).coerceAtLeast(0)) {
+                    val insertIndex = newList.indexOfLast { it.priority == priority }.let {
+                        if (it == -1) {
+                            // Find the right boundary if group is empty
+                            if (priority == Priority.HIGH) 0
+                            else if (priority == Priority.MEDIUM) newList.indexOfFirst { it.priority == Priority.LOW }.let { if (it == -1) newList.size else it }
+                            else newList.size
+                        } else it + 1
+                    }
+                    newList.add(insertIndex, TodoItem(id = nextId++, title = "", priority = priority))
+                }
+            }
+            newList
+        }
+    }
 
-            repeat((highCount - currentHigh).coerceAtLeast(0)) {
-                newList.add(TodoItem(id = nextId++, title = "", priority = Priority.HIGH))
+    fun addEmptyTodo(priority: Priority) {
+        _todos.update { currentList ->
+            val newList = currentList.toMutableList()
+            val nextId = (newList.maxOfOrNull { it.id } ?: -1) + 1
+            val newItem = TodoItem(id = nextId, title = "", priority = priority)
+            
+            val firstIndex = newList.indexOfFirst { it.priority == priority }
+            if (firstIndex != -1) {
+                newList.add(firstIndex, newItem)
+            } else {
+                val insertIndex = when (priority) {
+                    Priority.HIGH -> 0
+                    Priority.MEDIUM -> newList.indexOfFirst { it.priority == Priority.LOW }.let { if (it == -1) newList.size else it }
+                    Priority.LOW -> newList.size
+                }
+                newList.add(insertIndex, newItem)
             }
-            repeat((mediumCount - currentMedium).coerceAtLeast(0)) {
-                newList.add(TodoItem(id = nextId++, title = "", priority = Priority.MEDIUM))
+            newList
+        }
+    }
+
+    fun moveTodo(fromId: Int, toId: Int) {
+        _todos.update { currentList ->
+            val newList = currentList.toMutableList()
+            val fromIndex = newList.indexOfFirst { it.id == fromId }
+            val toIndex = newList.indexOfFirst { it.id == toId }
+            
+            if (fromIndex != -1 && toIndex != -1) {
+                val item = newList.removeAt(fromIndex)
+                newList.add(toIndex, item)
+                
+                // Update priority based on the items around it in the new position
+                val newPriority = if (toIndex > 0 && toIndex < newList.size - 1) {
+                    newList[toIndex - 1].priority
+                } else if (toIndex == 0 && newList.size > 1) {
+                    newList[1].priority
+                } else if (toIndex == newList.size - 1 && newList.size > 1) {
+                    newList[newList.size - 2].priority
+                } else {
+                    item.priority
+                }
+                
+                newList[toIndex] = newList[toIndex].copy(priority = newPriority)
             }
-            repeat((lowCount - currentLow).coerceAtLeast(0)) {
-                newList.add(TodoItem(id = nextId++, title = "", priority = Priority.LOW))
-            }
-            return@update newList.sortedBy { it.priority }
+            newList
         }
     }
 
@@ -72,7 +126,7 @@ class TodoManager(
 
     fun deferTodo(id: Int) {
         _todos.update { list ->
-            val tomorrow = java.time.LocalDate.now().plusDays(1)
+            val tomorrow = LocalDate.now().plusDays(1)
             list.map { item ->
                 if (item.id == id) {
                     item.copy(
@@ -86,7 +140,7 @@ class TodoManager(
 
     fun nextDayMigration() {
         _todos.update { list ->
-            val tomorrow = java.time.LocalDate.now().plusDays(1)
+            val tomorrow = LocalDate.now().plusDays(1)
 
             list.mapNotNull { item ->
                 when {

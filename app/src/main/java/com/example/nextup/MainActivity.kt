@@ -5,7 +5,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,8 +16,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -32,12 +37,20 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.example.nextup.ui.theme.NextUpTheme
+import com.nextup.core.Priority
 import com.nextup.core.TodoItem
 import com.nextup.core.TodoManager
 
@@ -69,24 +82,89 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TodoList(todoManager: TodoManager, modifier: Modifier = Modifier) {
     val todos by todoManager.todos.collectAsState()
-    val grouped = todos.groupBy { it.priority }
+    val listState = rememberLazyListState()
+    
+    var draggedItemIndex by remember { mutableStateOf<Int?>(null) }
+    var draggingOffset by remember { mutableFloatStateOf(0f) }
 
-    LazyColumn(modifier = modifier.fillMaxSize()) {
-        grouped.forEach { (priority, items) ->
-            stickyHeader {
-                Text(
-                    text = priority.name,
-                    modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(16.dp),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color.Gray
+    LazyColumn(
+        state = listState,
+        modifier = modifier
+            .fillMaxSize()
+            .pointerInput(todos) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { offset ->
+                        listState.layoutInfo.visibleItemsInfo
+                            .find { item -> offset.y.toInt() in item.offset..(item.offset + item.size) }
+                            ?.let { item ->
+                                if (item.key is Int) {
+                                    draggedItemIndex = item.index
+                                }
+                            }
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        draggingOffset += dragAmount.y
+                        
+                        val draggedIndex = draggedItemIndex ?: return@detectDragGesturesAfterLongPress
+                        val currentItems = listState.layoutInfo.visibleItemsInfo
+                        val draggedItem = currentItems.find { it.index == draggedIndex } ?: return@detectDragGesturesAfterLongPress
+                        
+                        val targetItem = currentItems.find { item ->
+                            val middle = draggedItem.offset + draggingOffset + draggedItem.size / 2
+                            middle.toInt() in item.offset..(item.offset + item.size) && 
+                            item.index != draggedIndex && 
+                            item.key is Int
+                        }
+
+                        if (targetItem != null) {
+                            todoManager.moveTodo(draggedItem.key as Int, targetItem.key as Int)
+                            draggedItemIndex = targetItem.index
+                            draggingOffset = 0f
+                        }
+                    },
+                    onDragEnd = {
+                        draggedItemIndex = null
+                        draggingOffset = 0f
+                    },
+                    onDragCancel = {
+                        draggedItemIndex = null
+                        draggingOffset = 0f
+                    }
                 )
             }
-            items(items, key = { it.id }) { todo ->
+    ) {
+        Priority.values().forEach { priority ->
+            stickyHeader(key = "header_${priority.name}") {
+                PriorityHeader(
+                    priority = priority,
+                    onAddClick = { todoManager.addEmptyTodo(priority) }
+                )
+            }
+            
+            val itemsInPriority = todos.filter { it.priority == priority }
+            itemsIndexed(itemsInPriority, key = { _, todo -> todo.id }) { _, todo ->
+                val isDragging = draggedItemIndex != null && 
+                                listState.layoutInfo.visibleItemsInfo.find { it.key == todo.id }?.index == draggedItemIndex
+                
+                val shadowElevation by animateDpAsState(if (isDragging) 8.dp else 0.dp, label = "shadow")
+                
                 SwipeableTodoRow(
+                    modifier = Modifier
+                        .graphicsLayer {
+                            if (isDragging) {
+                                translationY = draggingOffset
+                                scaleX = 1.05f
+                                scaleY = 1.05f
+                                alpha = 0.9f
+                            }
+                        }
+                        .zIndex(if (isDragging) 1f else 0f)
+                        .shadow(shadowElevation),
                     todo = todo,
                     onTitleChange = { newTitle -> todoManager.updateTitle(todo.id, newTitle) },
                     onToggle = { todoManager.toggleTodo(todo.id) },
@@ -99,6 +177,31 @@ fun TodoList(todoManager: TodoManager, modifier: Modifier = Modifier) {
     }
 }
 
+@Composable
+fun PriorityHeader(priority: Priority, onAddClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = priority.name,
+            style = MaterialTheme.typography.labelLarge,
+            color = Color.Gray,
+            modifier = Modifier.weight(1f)
+        )
+        IconButton(onClick = onAddClick) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = "Add Task",
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SwipeableTodoRow(
@@ -107,14 +210,15 @@ fun SwipeableTodoRow(
     onToggle: () -> Unit,
     onToggleRecurring: () -> Unit,
     onDelete: () -> Unit,
-    onDefer: () -> Unit
+    onDefer: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = {
             when (it) {
                 SwipeToDismissBoxValue.StartToEnd -> {
                     onDefer()
-                    false // Return false to snap back, since we just update state
+                    false
                 }
                 SwipeToDismissBoxValue.EndToStart -> {
                     onDelete()
@@ -127,6 +231,7 @@ fun SwipeableTodoRow(
 
     SwipeToDismissBox(
         state = dismissState,
+        modifier = modifier,
         backgroundContent = {
             val color by animateColorAsState(
                 when (dismissState.targetValue) {
