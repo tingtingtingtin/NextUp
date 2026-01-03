@@ -45,6 +45,7 @@ dependencies {
     implementation(project(":core"))
     implementation(libs.play.services.wearable)
     implementation(platform(libs.androidx.compose.bom))
+    implementation("androidx.compose.material:material-icons-extended:1.7.0")
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
