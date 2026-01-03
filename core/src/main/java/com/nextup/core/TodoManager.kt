@@ -70,10 +70,22 @@ class TodoManager(
         }
     }
 
+    fun deferTodo(id: Int) {
+        _todos.update { list ->
+            val tomorrow = java.time.LocalDate.now().plusDays(1)
+            list.map { item ->
+                if (item.id == id) {
+                    item.copy(
+                        deferCount = item.deferCount + 1,
+                        dueDate = tomorrow
+                    )
+                } else item
+            }
+        }
+    }
+
     fun nextDayMigration() {
         _todos.update { list ->
-            val calendar = Calendar.getInstance()
-            calendar.add(Calendar.DAY_OF_YEAR, 1)
             val tomorrow = java.time.LocalDate.now().plusDays(1)
 
             list.mapNotNull { item ->

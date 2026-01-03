@@ -4,6 +4,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,14 +15,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -71,33 +80,101 @@ fun TodoList(todoManager: TodoManager, modifier: Modifier = Modifier) {
             stickyHeader {
                 Text(
                     text = priority.name,
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(16.dp),
                     style = MaterialTheme.typography.labelLarge,
                     color = Color.Gray
                 )
             }
             items(items, key = { it.id }) { todo ->
-                TodoRow(
+                SwipeableTodoRow(
                     todo = todo,
                     onTitleChange = { newTitle -> todoManager.updateTitle(todo.id, newTitle) },
                     onToggle = { todoManager.toggleTodo(todo.id) },
-                    onToggleRecurring = { todoManager.toggleRecurring(todo.id) }
+                    onToggleRecurring = { todoManager.toggleRecurring(todo.id) },
+                    onDelete = { todoManager.deleteTodo(todo.id) },
+                    onDefer = { todoManager.deferTodo(todo.id) }
                 )
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SwipeableTodoRow(
+    todo: TodoItem,
+    onTitleChange: (String) -> Unit,
+    onToggle: () -> Unit,
+    onToggleRecurring: () -> Unit,
+    onDelete: () -> Unit,
+    onDefer: () -> Unit
+) {
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = {
+            when (it) {
+                SwipeToDismissBoxValue.StartToEnd -> {
+                    onDefer()
+                    false // Return false to snap back, since we just update state
+                }
+                SwipeToDismissBoxValue.EndToStart -> {
+                    onDelete()
+                    true
+                }
+                else -> false
+            }
+        }
+    )
+
+    SwipeToDismissBox(
+        state = dismissState,
+        backgroundContent = {
+            val color by animateColorAsState(
+                when (dismissState.targetValue) {
+                    SwipeToDismissBoxValue.StartToEnd -> Color.Blue.copy(alpha = 0.5f)
+                    SwipeToDismissBoxValue.EndToStart -> Color.Red.copy(alpha = 0.5f)
+                    else -> Color.Transparent
+                }, label = "dismissColor"
+            )
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(color)
+                    .padding(horizontal = 20.dp),
+                contentAlignment = when (dismissState.targetValue) {
+                    SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
+                    SwipeToDismissBoxValue.EndToStart -> Alignment.CenterEnd
+                    else -> Alignment.Center
+                }
+            ) {
+                when (dismissState.targetValue) {
+                    SwipeToDismissBoxValue.StartToEnd -> Icon(Icons.Default.PlayArrow, contentDescription = "Defer")
+                    SwipeToDismissBoxValue.EndToStart -> Icon(Icons.Default.Delete, contentDescription = "Delete")
+                    else -> {}
+                }
+            }
+        },
+        content = {
+            TodoRow(
+                todo = todo,
+                onTitleChange = onTitleChange,
+                onToggle = onToggle,
+                onToggleRecurring = onToggleRecurring
+            )
+        }
+    )
+}
+
 @Composable
 fun TodoRow(
-    todo: TodoItem, 
-    onTitleChange: (String) -> Unit, 
+    todo: TodoItem,
+    onTitleChange: (String) -> Unit,
     onToggle: () -> Unit,
     onToggleRecurring: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
             .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
