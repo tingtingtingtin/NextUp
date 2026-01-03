@@ -4,13 +4,19 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -33,7 +39,17 @@ class MainActivity : ComponentActivity() {
         setContent {
             val todoManager = remember { TodoManager() }
             NextUpTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    bottomBar = {
+                        Button(
+                            onClick = { todoManager.nextDayMigration() },
+                            modifier = Modifier.fillMaxWidth().padding(16.dp)
+                        ) {
+                            Text("Next Day")
+                        }
+                    }
+                ) { innerPadding ->
                     TodoList(
                         todoManager = todoManager,
                         modifier = Modifier.padding(innerPadding)
@@ -57,14 +73,15 @@ fun TodoList(todoManager: TodoManager, modifier: Modifier = Modifier) {
                     text = priority.name,
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
                     style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary
+                    color = Color.Gray
                 )
             }
-            items(items) { todo ->
+            items(items, key = { it.id }) { todo ->
                 TodoRow(
                     todo = todo,
                     onTitleChange = { newTitle -> todoManager.updateTitle(todo.id, newTitle) },
-                    onToggle = { todoManager.toggleTodo(todo.id) }
+                    onToggle = { todoManager.toggleTodo(todo.id) },
+                    onToggleRecurring = { todoManager.toggleRecurring(todo.id) }
                 )
             }
         }
@@ -72,24 +89,45 @@ fun TodoList(todoManager: TodoManager, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun TodoRow(todo: TodoItem, onTitleChange: (String) -> Unit, onToggle: () -> Unit) {
+fun TodoRow(
+    todo: TodoItem, 
+    onTitleChange: (String) -> Unit, 
+    onToggle: () -> Unit,
+    onToggleRecurring: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Checkbox(
             checked = todo.isDone,
             onCheckedChange = { onToggle() }
         )
-        androidx.compose.foundation.text.BasicTextField(
-            value = todo.title,
-            onValueChange = onTitleChange,
-            modifier = Modifier.padding(start = 8.dp).weight(1f),
-            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                color = if (todo.isDone) Color.Gray else MaterialTheme.colorScheme.onSurface
+        Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
+            androidx.compose.foundation.text.BasicTextField(
+                value = todo.title,
+                onValueChange = onTitleChange,
+                modifier = Modifier.fillMaxWidth(),
+                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                    color = if (todo.isDone) Color.Gray else MaterialTheme.colorScheme.onSurface
+                )
             )
-        )
+            if (todo.deferCount > 0) {
+                Text(
+                    text = "Deferred ${todo.deferCount} times",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        }
+        IconButton(onClick = onToggleRecurring) {
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = "Recurring",
+                tint = if (todo.isRecurring) MaterialTheme.colorScheme.primary else Color.LightGray
+            )
+        }
     }
 }
